@@ -1,11 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createDeepModel } from './deepmodel';
+import {
+  updateStepProgress as updateProgress,
+  handleSearch as performSearch
+} from './index.js';
+import ReactMarkdown from 'react-markdown';
 import {
   Search,
   Brain,
   Database,
   Zap,
   Filter,
-  Target,
   TrendingUp,
   Download,
   Share2,
@@ -16,7 +21,6 @@ import {
   Tag,
   Clipboard
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
 import './deepresearchstyles.css';
 
 const DeepResearch = () => {
@@ -25,137 +29,122 @@ const DeepResearch = () => {
   const [selectedResearch, setSelectedResearch] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [analysisInProgress, setAnalysisInProgress] = useState(false);
+  const [deepModel, setDeepModel] = useState(null);
+  const [apiError, setApiError] = useState(null);
+  const [streamingThoughtChain, setStreamingThoughtChain] = useState([]);
+  const [streamingResult, setStreamingResult] = useState('');
+  const [currentThoughtStep, setCurrentThoughtStep] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
+  const [currentStep, setCurrentStep] = useState(0); // 当前执行的步骤（1-4）
+  const [stepProgress, setStepProgress] = useState(0); // 当前步骤的进度（0-100）
   
-  // Mock data for research results
-  const researchHistory = [
-    { 
-      id: 1, 
-      query: 'Gen Z shopping behaviors in US market', 
-      date: '2025-03-01', 
-      sources: 28,
-      status: 'completed',
-      insights: 15,
-      relevance: 92
-    },
-    { 
-      id: 2, 
-      query: 'Disney product licensing trends 2025', 
-      date: '2025-02-28', 
-      sources: 34,
-      status: 'completed',
-      insights: 22,
-      relevance: 95
-    },
-    { 
-      id: 3, 
-      query: 'Campus life essentials market analysis', 
-      date: '2025-02-25', 
-      sources: 31,
-      status: 'completed',
-      insights: 18,
-      relevance: 88
-    },
-    { 
-      id: 4, 
-      query: 'Stationary market competitive analysis', 
-      date: '2025-02-20', 
-      sources: 25,
-      status: 'completed',
-      insights: 12,
-      relevance: 85
-    },
-  ];
   
-  // Mock research detail data
-  const mockResearchDetail = {
-    id: 2,
-    query: "Disney product licensing trends 2025",
-    date: "2025-02-28",
-    status: "completed",
-    summary: 
-      "Disney's licensing strategy in 2025 shows significant shifts toward " +
-      "digital-physical product integration, sustainability, and immersive " +
-      "experiences. Limited-edition collaborations with lifestyle brands " +
-      "continue to drive consumer engagement, with particular resonance " +
-      "among Gen Z and Millennial demographics. Character preferences show " +
-      "strong performance from newer franchises alongside classic characters, " +
-      "with regional variations in popularity.",
-    sources: [
-      { name: "Licensing International", type: "Industry Report", date: "2025-01", reliability: 95 },
-      { name: "The Walt Disney Company", type: "Investor Relations", date: "2025-02", reliability: 90 },
-      { name: "LIMA Global Licensing Survey", type: "Market Research", date: "2024-12", reliability: 92 },
-      { name: "Brand Licensing Europe", type: "Conference Proceedings", date: "2024-11", reliability: 88 }
-    ],
-    keyFindings: [
-      { category: 'Trend', text: 'Increase in digital-physical product integration with AR/VR components' },
-      { category: 'Market', text: 'Sustainable and eco-friendly licensed products showing 38% YoY growth' },
-      { category: 'Consumer', text: 'Gen Z demonstrates strong preference for limited edition collaborations' },
-      { category: 'Strategy', text: 'Character selection becoming more data-driven and regionally customized' },
-      { category: 'Competition', text: 'New licensing models emerging with performance-based royalty structures' },
-    ],
-    internalDataInsights: {
-      topPerformingCharacters: [
-        { name: 'Mickey & Friends', performance: 100 },
-        { name: 'Frozen', performance: 85 },
-        { name: 'Marvel Avengers', performance: 82 },
-        { name: 'Star Wars', performance: 78 },
-        { name: 'Winnie the Pooh', performance: 65 },
-      ],
-      channelPerformance: [
-        { channel: 'TikTok', engagement: 92, conversion: 4.2 },
-        { channel: 'Instagram', engagement: 85, conversion: 3.8 },
-        { channel: 'Facebook', engagement: 62, conversion: 2.5 },
-        { channel: 'Email', engagement: 55, conversion: 5.1 },
-      ],
-      kocStrategy: [
-        { strategy: 'Character unboxing videos', effectiveness: 90, implementation: 75 },
-        { strategy: 'Limited edition previews', effectiveness: 95, implementation: 85 },
-        { strategy: 'DIY character crafts', effectiveness: 82, implementation: 60 },
-        { strategy: 'Collector showcases', effectiveness: 88, implementation: 70 },
-      ]
-    },
-    recommendations: [
-      { text: 'Increase TikTok content featuring limited edition Disney collections', priority: 'High', impact: 'High', effort: 'Medium' },
-      { text: 'Develop AR experiences to complement physical Disney products', priority: 'Medium', impact: 'High', effort: 'High' },
-      { text: 'Create KOC campaign focusing on sustainable Disney product features', priority: 'High', impact: 'Medium', effort: 'Medium' },
-      { text: 'Optimize landing pages for top-performing characters by region', priority: 'Medium', impact: 'Medium', effort: 'Low' },
-      { text: 'Test performance-based licensing model with select Disney products', priority: 'Low', impact: 'High', effort: 'High' },
-    ],
-    marketOpportunities: [
-      { opportunity: 'Disney character-themed sustainable stationery line', size: 'Large', competition: 'Medium', timeline: 'Q2 2025' },
-      { opportunity: 'AR-enhanced Disney storage solutions for students', size: 'Medium', competition: 'Low', timeline: 'Q3 2025' },
-      { opportunity: 'Limited edition regional Disney character collections', size: 'Medium', competition: 'Medium', timeline: 'Q4 2025' },
-      { opportunity: 'Disney digital collectibles with physical product bundles', size: 'Small', competition: 'Low', timeline: 'Q1 2026' },
-    ]
-  };
   
-  // Handle research search
-  const handleSearch = () => {
-    if (!searchQuery.trim()) return;
+    // Initialize DeepModel instance
+  useEffect(() => {
+    // Get API key from environment variables
+    // Note: In production, you should use environment variables instead of hardcoded API keys
+    // Here we temporarily use a hardcoded key for demonstration and debugging purposes
+    const apiKey = process.env.REACT_APP_CLAUDE_API_KEY;
+    
+    // Check if API key exists
+    if (!apiKey) {
+      setApiError('API key not found, please check environment variable configuration');
+      return;
+    }
+    
+    try {
+      const model = createDeepModel(apiKey);
+      setDeepModel(model);
+    } catch (error) {
+      setApiError(`Unable to initialize AI model, please check API configuration. Error message: ${error.message}`);
+    }
+  }, []);
+  
+
+  useEffect(() => {
+    let progressInterval;
+    
+    if (analysisInProgress && currentStep > 0) {
+      setStepProgress(0);
+      
+      const totalDuration = 30000; 
+      const updateFrequency = 100; 
+      const totalSteps = totalDuration / updateFrequency;
+      let currentProgressStep = 0;
+      
+      progressInterval = setInterval(() => {
+        currentProgressStep++;
+        
+        const progress = 100 * (1 - Math.exp(-5 * currentProgressStep / totalSteps));
+        
+        setStepProgress(prevProgress => {
+          const randomFactor = Math.random() * 0.5 + 0.8; 
+          const newProgress = Math.max(prevProgress, progress * randomFactor);
+          
+          return newProgress > 98 ? 98 : newProgress;
+        });
+        
+        if (currentProgressStep > totalSteps * 0.8) {
+          clearInterval(progressInterval);
+          progressInterval = setInterval(() => {
+            setStepProgress(prevProgress => {
+              const increment = Math.random() * 0.3;
+              const newProgress = prevProgress + increment;
+              return newProgress > 98 ? 98 : newProgress;
+            });
+          }, 500);
+        }
+      }, updateFrequency);
+    }
+    
+    return () => {
+      if (progressInterval) clearInterval(progressInterval);
+    };
+  }, [analysisInProgress, currentStep]);
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim() || !deepModel) return;
     
     setIsSearching(true);
-    setTimeout(() => {
-      setIsSearching(false);
-      setAnalysisInProgress(true);
+    setApiError(null);
+    setStreamingThoughtChain([]);
+    setStreamingResult('');
+    setCurrentThoughtStep('');
+    setIsThinking(true);
+    setCurrentStep(0);
+    setStepProgress(0);
+    
+    try {
+      const result = await performSearch(
+        searchQuery,
+        deepModel,
+        setIsSearching,
+        setApiError,
+        setStreamingThoughtChain,
+        setStreamingResult,
+        setCurrentThoughtStep,
+        setIsThinking,
+        setCurrentStep,
+        setStepProgress,
+        setAnalysisInProgress,
+        setSelectedResearch,
+        setActiveTab,
+        updateProgress
+      );
       
-      setTimeout(() => {
-        setAnalysisInProgress(false);
-        setSelectedResearch(mockResearchDetail);
-      }, 3000);
-    }, 2000);
+      if (!result) {
+        throw new Error('Research analysis failed');
+      }
+    } catch (error) {
+      setIsSearching(false);
+      setAnalysisInProgress(false);
+      setIsThinking(false);
+      setApiError(`Research analysis failed: ${error.message}`);
+    }
   };
   
-  // Handle selecting a research from history
-  const handleSelectResearch = (research) => {
-    // In a real app, this would fetch the full research details based on the selected research
-    setSelectedResearch({
-      ...mockResearchDetail,
-      id: research.id,
-      query: research.query,
-      date: research.date,
-      status: research.status
-    });
-  };
+
 
   return (
     <div className="module-container">
@@ -182,9 +171,9 @@ const DeepResearch = () => {
               </div>
           </div>
           <button 
-              className={`search-button ${isSearching ? 'disabled' : ''}`}
+              className={`search-button ${isSearching || analysisInProgress ? 'disabled' : ''}`}
             onClick={handleSearch}
-            disabled={isSearching || !searchQuery.trim()}
+            disabled={isSearching || analysisInProgress || !searchQuery.trim()}
           >
               {isSearching ? <RefreshCw size={20} className="icon spinning" /> : <Search size={20} className="icon" />}
             {isSearching ? 'Researching...' : 'Research'}
@@ -205,71 +194,267 @@ const DeepResearch = () => {
         </div>
       </div>
       
-      {analysisInProgress && (
-          <div className="analysis-progress">
-            <div className="progress-indicator">
-              <Zap size={28} className="text-pink-600 animate-pulse" />
+      {!analysisInProgress && !selectedResearch && (
+        <div className="research-results">
+          <div className="research-history">
+            <div className="history-header">
+              <h3>Thought Chain</h3>
+              <button className="filter-button">
+                <Filter size={18} />
+              </button>
             </div>
-            <h3>Deep Analysis in Progress</h3>
-            <p>Claude 3.7 is analyzing data from multiple sources and integrating insights from MINISO platform modules.</p>
-            <div className="w-full max-w-md bg-gray-200 rounded-full h-2.5 mb-1 mx-auto mt-6">
-              <div className="bg-pink-600 h-2.5 rounded-full" style={{width: '70%'}}></div>
-            </div>
-            <div className="flex w-full max-w-md justify-between text-xs text-gray-500 mx-auto">
-              <span>Data Collection</span>
-              <span>Integration</span>
-              <span>Analysis</span>
-              <span>Synthesis</span>
+            <div className="history-list">
+              <div className="placeholder-content">
+                <p>Your research thought Chain will appear here.</p>
+              </div>
             </div>
           </div>
-        )}
-        
-        {!analysisInProgress && !selectedResearch && (
-          <div className="placeholder-content">
-            <h2>Deep Research Module</h2>
-            <p>Use the search above to start a new market research, or view historical research records.</p>
+          
+          <div className="research-detail">
+            <div className="detail-header">
+              <div>
+                <h2>Deep Research</h2>
+                <p>Use the search above to start a new market research analysis.</p>
+              </div>
+              <div className="progress-indicator">
+                <Zap size={28} className="text-pink-600" />
+              </div>
+            </div>
+            
+            <div className="analysis-progress-detail">
+              <div className="w-full max-w-md bg-gray-200 rounded-full h-2.5 mb-1 mx-auto mt-6">
+                <div className="bg-gray-400 h-2.5 rounded-full" style={{width: '0%'}}></div>
+              </div>
+              <div className="flex w-full max-w-md justify-between text-xs text-gray-500 mx-auto">
+                <span>Data Collection</span>
+                <span>Integration</span>
+                <span>Analysis</span>
+                <span>Synthesis</span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
       
-        {selectedResearch && (
+      {analysisInProgress ? (
+        <div className="research-results">
+          <div className="research-history">
+            <div className="history-header">
+              <h3>Thought Chain</h3>
+              <button className="filter-button">
+                <Filter size={18} />
+              </button>
+            </div>
+            <div className="history-list">
+              {/* Thought chain process display */}
+              {streamingThoughtChain.map((step, index) => (
+                <div key={index} className="history-item">
+                  <div className="history-item-header">
+                    <div className="step-number-circle">{index + 1}</div>
+                    <h4>{step}</h4>
+                  </div>
+                </div>
+              ))}
+              {isThinking && currentThoughtStep && (
+                <div className="history-item active">
+                  <div className="history-item-header">
+                    <div className="step-number-circle">{streamingThoughtChain.length + 1}</div>
+                    <h4>
+                      <span className="thinking-indicator">Thinking...</span>
+                      {currentThoughtStep}
+                    </h4>
+                  </div>
+                </div>
+              )}
+              
+              {/* Real-time result output */}
+              {streamingResult && (
+                <div className="history-item result-item">
+                  <div className="history-item-header">
+                    <div className="step-number-circle">
+                      <Zap size={14} />
+                    </div>
+                    <h4>Analysis Results</h4>
+                  </div>
+                  <div className="history-item-content">
+                    <div className="streaming-result-content">
+                      {streamingResult}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div className="research-detail">
+            <div className="detail-header">
+              <div>
+                <h2>Deep Analysis in Progress</h2>
+                <p>analyzing data from multiple sources and integrating insights from MINISO platform modules.</p>
+              </div>
+              <div className="progress-indicator">
+                <Zap size={28} className="text-pink-600 animate-pulse" />
+              </div>
+            </div>
+                        
+            {streamingThoughtChain.length >= 2 && (
+              <div className="detail-tabs">
+                <button
+                  className={`tab ${activeTab === 'overview' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('overview')}
+                >
+                  Overview
+                </button>
+                <button
+                  className={`tab ${activeTab === 'internal' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('internal')}
+                >
+                  MINISO Data Integration
+                </button>
+                <button
+                  className={`tab ${activeTab === 'recommendations' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('recommendations')}
+                >
+                  Recommendations
+                </button>
+              </div>
+            )}
+            
+            {activeTab === 'overview' && (
+              <div className="tab-content">
+                <div className="summary-section">
+                  {/* Step progress indicator */}
+                  <div className="step-dots">
+                    <div className={`step-dot ${currentStep >= 1 ? 'active' : ''}`}></div>
+                    <div className={`step-dot ${currentStep >= 2 ? 'active' : ''}`}></div>
+                    <div className={`step-dot ${currentStep >= 3 ? 'active' : ''}`}></div>
+                    <div className={`step-dot ${currentStep >= 4 ? 'active' : ''}`}></div>
+                  </div>
+                  
+                  {/* Step status indicator */}
+                  <div className="step-status-section">
+                    <h3>Research Progress</h3>
+                    <div className="step-status-list">
+                      <div className={`step-status-item ${currentStep > 1 ? 'completed' : currentStep === 1 ? 'in-progress' : ''}`}>
+                        <div className="step-status-icon">
+                          {currentStep > 1 ? <Check size={16} /> : currentStep === 1 ? <div className="waiting-animation"></div> : ''}
+                        </div>
+                        <div className="step-status-text">
+                          <span className="step-name">Step 1: Thought Chain Generation</span>
+                          <span className="step-status">
+                            {currentStep > 1 ? 'Completed' : currentStep === 1 ? 'In progress...' : 'Waiting...'}
+                          </span>
+                        </div>
+                        {currentStep === 1 && (
+                          <div className="step-progress">
+                            <div className="step-progress-bar">
+                              <div className="step-progress-fill active" style={{ width: `${stepProgress}%` }}></div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className={`step-status-item ${currentStep > 2 ? 'completed' : currentStep === 2 ? 'in-progress' : ''}`}>
+                        <div className="step-status-icon">
+                          {currentStep > 2 ? <Check size={16} /> : currentStep === 2 ? <div className="waiting-animation"></div> : ''}
+                        </div>
+                        <div className="step-status-text">
+                          <span className="step-name">Step 2: Market Research Analysis</span>
+                          <span className="step-status">
+                            {currentStep > 2 ? 'Completed' : currentStep === 2 ? 'In progress...' : 'Waiting...'}
+                          </span>
+                        </div>
+                        {currentStep === 2 && (
+                          <div className="step-progress">
+                            <div className="step-progress-bar">
+                              <div className="step-progress-fill active" style={{ width: `${stepProgress}%` }}></div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className={`step-status-item ${currentStep > 3 ? 'completed' : currentStep === 3 ? 'in-progress' : ''}`}>
+                        <div className="step-status-icon">
+                          {currentStep > 3 ? <Check size={16} /> : currentStep === 3 ? <div className="waiting-animation"></div> : ''}
+                        </div>
+                        <div className="step-status-text">
+                          <span className="step-name">Step 3: Competitor Analysis</span>
+                          <span className="step-status">
+                            {currentStep > 3 ? 'Completed' : currentStep === 3 ? 'In progress...' : 'Waiting...'}
+                          </span>
+                        </div>
+                        {currentStep === 3 && (
+                          <div className="step-progress">
+                            <div className="step-progress-bar">
+                              <div className="step-progress-fill active" style={{ width: `${stepProgress}%` }}></div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className={`step-status-item ${currentStep > 4 ? 'completed' : currentStep === 4 ? 'in-progress' : ''}`}>
+                        <div className="step-status-icon">
+                          {currentStep > 4 ? <Check size={16} /> : currentStep === 4 ? <div className="waiting-animation"></div> : ''}
+                        </div>
+                        <div className="step-status-text">
+                          <span className="step-name">Step 4: Consumer Insights Analysis</span>
+                          <span className="step-status">
+                            {currentStep > 4 ? 'Completed' : currentStep === 4 ? 'In progress...' : 'Waiting...'}
+                          </span>
+                        </div>
+                        {currentStep === 4 && (
+                          <div className="step-progress">
+                            <div className="step-progress-bar">
+                              <div className="step-progress-fill active" style={{ width: `${stepProgress}%` }}></div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : selectedResearch && (
           <div className="research-results">
             <div className="research-history">
               <div className="history-header">
-                <h3>Research History</h3>
+                <h3>Thought Chain</h3>
                 <button className="filter-button">
                 <Filter size={18} />
               </button>
             </div>
               <div className="history-list">
-              {researchHistory.map((research) => (
-                <div 
-                  key={research.id} 
-                    className={`history-item ${selectedResearch && selectedResearch.id === research.id ? 'active' : ''}`}
-                    onClick={() => handleSelectResearch(research)}
-                  >
+              {selectedResearch.thoughtChain && selectedResearch.thoughtChain.map((step, index) => {
+                // Extract step number and content from step text
+                return (
+                  <div key={index} className={`history-item`}>
                     <div className="history-item-header">
-                      <h4>{research.query}</h4>
-                      <span className={`status-badge ${research.status}`}>
-                        {research.status === 'completed' ? 'Completed' : 'In Progress'}
-                    </span>
+                      <div className="step-number-circle">{index + 1}</div>
+                      <h4>{step}</h4>
                     </div>
-                    <p className="history-date">{research.date}</p>
-                    <div className="history-stats">
-                      <div className="stat">
-                        <Zap size={14} className="stat-icon insight" />
-                        <span>{research.insights} Insights</span>
-                      </div>
-                      <div className="stat">
-                        <Database size={14} className="stat-icon source" />
-                        <span>{research.sources} Sources</span>
-                      </div>
-                      <div className="stat">
-                        <Target size={14} className="stat-icon relevance" />
-                        <span>{research.relevance}% Relevance</span>
+                  </div>
+                );
+              })}
+              
+              {/* Display saved streaming output results */}
+              {selectedResearch.streamingResult && (
+                <div className="history-item result-item">
+                  <div className="history-item-header">
+                    <div className="step-number-circle">
+                      <Zap size={14} />
+                    </div>
+                    <h4>Analysis Results</h4>
+                  </div>
+                  <div className="history-item-content">
+                    <div className="streaming-result-content">
+                      {selectedResearch.streamingResult}
                     </div>
                   </div>
                 </div>
-              ))}
+              )}
           </div>
         </div>
         
@@ -314,7 +499,9 @@ const DeepResearch = () => {
                 <div className="tab-content">
                   <div className="summary-section">
                     <h3>Executive Summary</h3>
-                    <p>{selectedResearch.summary}</p>
+                    <div className="markdown-content">
+                      <ReactMarkdown>{selectedResearch.summary}</ReactMarkdown>
+                    </div>
                     
                     <div className="insights-grid">
                       <div className="insight-card">
@@ -359,6 +546,26 @@ const DeepResearch = () => {
                         </div>
                       </div>
                     </div>
+                    
+                  {/* Competitor analysis section */}
+                  {selectedResearch.competitorAnalysis && (
+                    <div className="competitor-analysis-section">
+                      <h3>Competitor Analysis</h3>
+                      <div className="competitor-content">
+                        <p>{selectedResearch.competitorAnalysis}</p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Consumer insights section */}
+                  {selectedResearch.consumerInsights && (
+                    <div className="consumer-insights-section">
+                      <h3>Consumer Insights</h3>
+                      <div className="consumer-content">
+                        <p>{selectedResearch.consumerInsights}</p>
+                      </div>
+                    </div>
+                  )}
                     
                   <div className="opportunities-section">
                     <h3>Market Opportunities</h3>
