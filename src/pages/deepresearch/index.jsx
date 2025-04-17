@@ -44,7 +44,12 @@ const DeepResearch = () => {
   const [isThinking, setIsThinking] = useState(false);
   const [currentStep, setCurrentStep] = useState(0); // 当前执行的步骤（1-4）
   const [stepProgress, setStepProgress] = useState(0); // 当前步骤的进度（0-100）
-  
+  const researchTopics = [
+    'Consumer trends in eco-friendly stationery',
+    'Gen Z campus life product preferences',
+    'Holiday gift market forecast 2025',
+    'Stationary market competitive analysis'
+  ];
   
   
     // Initialize DeepModel instance
@@ -317,15 +322,11 @@ const DeepResearch = () => {
         
           <div className="suggested-topics">
             <div className="topic-label">Suggested topics:</div>
-            <button className="topic-tag" onClick={() => setSearchQuery('Consumer trends in eco-friendly stationery')}>
-            Consumer trends in eco-friendly stationery
-          </button>
-            <button className="topic-tag" onClick={() => setSearchQuery('Gen Z campus life product preferences')}>
-            Gen Z campus life product preferences
-          </button>
-            <button className="topic-tag" onClick={() => setSearchQuery('Holiday gift market forecast 2025')}>
-            Holiday gift market forecast 2025
-          </button>
+            {researchTopics.map((topic, index) => (
+              <button key={index} className="topic-tag" onClick={() => setSearchQuery(topic)}>
+                {topic}
+              </button>
+            ))}
         </div>
       </div>
       

@@ -8,15 +8,8 @@ const DeepResearchWrapper = () => {
   const DeepResearch = require('./index.jsx').default;
   return <DeepResearch />;
 };
-
 export default DeepResearchWrapper;
 
-export const researchTopics = [
-  'Gen Z shopping behaviors in US market',
-  'Disney product licensing trends 2025',
-  'Campus life essentials market analysis',
-  'Stationary market competitive analysis'
-];
 
 
 export const updateStepProgress = (progress, stepProgress, setStepProgress) => {
