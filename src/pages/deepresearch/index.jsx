@@ -1,10 +1,17 @@
 import { useState, useEffect } from 'react';
-import { createDeepModel } from './deepmodel';
+import { createDeepModel, DEFAULT_THOUGHT_STEPS } from './deepmodel';
 import {
   updateStepProgress as updateProgress,
-  handleSearch as performSearch
+  extractCompetitors,
+  extractIndustry,
+  extractTargetAudience,
+  extractProduct,
+  processResearchResult
 } from './index.js';
 import ReactMarkdown from 'react-markdown';
+import OverviewTab from './OverviewTab';
+import MinisoDataIntegrationTab from './MinisoDataIntegrationTab';
+import RecommendationsTab from './RecommendationsTab';
 import {
   Search,
   Brain,
@@ -45,10 +52,14 @@ const DeepResearch = () => {
     // Get API key from environment variables
     // Note: In production, you should use environment variables instead of hardcoded API keys
     // Here we temporarily use a hardcoded key for demonstration and debugging purposes
-    const apiKey = process.env.REACT_APP_CLAUDE_API_KEY;
+    console.log('Initializing DeepModel...');
     
-    // Check if API key exists
+    // 尝试从环境变量获取API密钥
+    let apiKey = process.env.REACT_APP_CLAUDE_API_KEY;
+        
+    // 再次检查API密钥是否存在
     if (!apiKey) {
+      console.error('API key not found');
       setApiError('API key not found, please check environment variable configuration');
       return;
     }
@@ -57,6 +68,7 @@ const DeepResearch = () => {
       const model = createDeepModel(apiKey);
       setDeepModel(model);
     } catch (error) {
+      console.error('Error initializing DeepModel:', error);
       setApiError(`Unable to initialize AI model, please check API configuration. Error message: ${error.message}`);
     }
   }, []);
@@ -103,8 +115,16 @@ const DeepResearch = () => {
     };
   }, [analysisInProgress, currentStep]);
 
+  // 直接在组件内部实现handleSearch函数，避免循环导入
   const handleSearch = async () => {
-    if (!searchQuery.trim() || !deepModel) return;
+    if (!searchQuery.trim()) {
+      console.log('Search query is empty');
+      return;
+    }
+    if (!deepModel) {
+      console.log('Deep model is not initialized');
+      return;
+    }
     
     setIsSearching(true);
     setApiError(null);
@@ -116,31 +136,146 @@ const DeepResearch = () => {
     setStepProgress(0);
     
     try {
-      const result = await performSearch(
-        searchQuery,
-        deepModel,
-        setIsSearching,
-        setApiError,
-        setStreamingThoughtChain,
-        setStreamingResult,
-        setCurrentThoughtStep,
-        setIsThinking,
-        setCurrentStep,
-        setStepProgress,
-        setAnalysisInProgress,
-        setSelectedResearch,
-        setActiveTab,
-        updateProgress
+      setTimeout(() => {
+        setIsSearching(false);
+        setAnalysisInProgress(true);
+      }, 1000);
+      
+      // 获取当前的stepProgress值
+      let stepProgress = 0;
+      
+      // 创建一个包装函数，用于更新stepProgress值并调用setStepProgress
+      const updateStepProgressWrapper = (progress) => {
+        stepProgress = progress; // 更新本地变量
+        setStepProgress(progress); // 更新React状态
+      };
+      
+      setCurrentStep(1);
+      
+      let thoughtChainResult;
+      try {
+        thoughtChainResult = await deepModel.streamThoughtChain(
+          searchQuery,
+          (step, completedSteps) => {
+            setCurrentThoughtStep(step);
+            setStreamingThoughtChain(completedSteps);
+            const progress = (completedSteps.length / 7) * 100; 
+            updateProgress(Math.min(progress, 95), stepProgress, updateStepProgressWrapper);
+          },
+          (thoughtChain) => {
+            setStreamingThoughtChain(thoughtChain);
+            setIsThinking(false);
+            updateProgress(100, stepProgress, updateStepProgressWrapper); 
+          },
+          (delta, fullResponse) => {
+            setStreamingResult(fullResponse);
+          }
+        );
+        
+      } catch (error) {
+        console.error('Error in streamThoughtChain:', error);
+        thoughtChainResult = {
+          thoughtChain: DEFAULT_THOUGHT_STEPS,
+          analysisResult: `Analysis failed: ${error instanceof Error ? error.message : String(error)}`
+        };
+      }
+      
+      let researchData = processResearchResult(
+        "Conducting market research analysis...", 
+        searchQuery, 
+        thoughtChainResult.thoughtChain,
+        thoughtChainResult.analysisResult || '' // Use analysisResult or empty string
       );
       
-      if (!result) {
-        throw new Error('Research analysis failed');
-      }
+      setSelectedResearch(researchData);
+      
+      setCurrentStep(2);
+      setStepProgress(0); 
+      const marketResearchResult = await deepModel.marketResearch(
+        searchQuery,
+        null,
+        (delta, fullResponse) => {
+          const progress = Math.min((fullResponse.length / 2000) * 100, 95);
+          updateProgress(progress, stepProgress, updateStepProgressWrapper);
+        },
+        true 
+      );
+      updateProgress(100, stepProgress, updateStepProgressWrapper); 
+      
+      const streamingResultBeforeStep2 = researchData.streamingResult;
+      
+      researchData = processResearchResult(
+        marketResearchResult.result, 
+        searchQuery, 
+        thoughtChainResult.thoughtChain,
+        streamingResultBeforeStep2 
+      );
+      
+      setSelectedResearch({...researchData});
+      
+      setCurrentStep(3);
+      setStepProgress(0); 
+      const competitors = extractCompetitors(marketResearchResult.result);
+      const competitorAnalysisResult = await deepModel.competitorAnalysis(
+        competitors,
+        extractIndustry(searchQuery),
+        (delta, fullResponse) => {
+          const progress = Math.min((fullResponse.length / 1500) * 100, 95);
+          updateProgress(progress, stepProgress, updateStepProgressWrapper);
+        }
+      );
+      updateProgress(100, stepProgress, updateStepProgressWrapper); 
+      
+      const streamingResultBeforeStep3 = researchData.streamingResult;
+      
+      const updatedResearchData = {
+        ...researchData,
+        competitorAnalysis: competitorAnalysisResult.result,
+        streamingResult: streamingResultBeforeStep3
+      };
+      
+      researchData = updatedResearchData;
+      
+      setSelectedResearch({...researchData});
+      
+      setCurrentStep(4);
+      setStepProgress(0); 
+      const targetAudience = extractTargetAudience(marketResearchResult.result);
+      const product = extractProduct(searchQuery);
+      const consumerInsightsResult = await deepModel.consumerInsights(
+        targetAudience,
+        product,
+        (delta, fullResponse) => {
+          const progress = Math.min((fullResponse.length / 1500) * 100, 95);
+          updateProgress(progress, stepProgress, updateStepProgressWrapper);
+        }
+      );
+      updateProgress(100, stepProgress, updateStepProgressWrapper); // Set to 100% to indicate completion
+      
+      const streamingResultBeforeStep4 = researchData.streamingResult;
+      
+      const updatedResearchDataStep4 = {
+        ...researchData,
+        consumerInsights: consumerInsightsResult.result,
+        streamingResult: streamingResultBeforeStep4
+      };
+      
+      researchData = updatedResearchDataStep4;
+      
+      setCurrentStep(0); 
+      setAnalysisInProgress(false);
+      
+      setSelectedResearch({...researchData});
+      setActiveTab('overview'); 
+      
+      return researchData;
     } catch (error) {
+      console.error("Search error:", error);
       setIsSearching(false);
       setAnalysisInProgress(false);
       setIsThinking(false);
       setApiError(`Research analysis failed: ${error.message}`);
+      return null;
     }
   };
   
@@ -320,7 +455,7 @@ const DeepResearch = () => {
               </div>
             )}
             
-            {activeTab === 'overview' && (
+            {activeTab === 'overview' && currentStep > 0 ? (
               <div className="tab-content">
                 <div className="summary-section">
                   {/* Step progress indicator */}
@@ -414,7 +549,9 @@ const DeepResearch = () => {
                   </div>
                 </div>
               </div>
-            )}
+            ) : activeTab === 'overview' && selectedResearch ? (
+              <OverviewTab selectedResearch={selectedResearch} />
+            ) : null}
           </div>
         </div>
       ) : selectedResearch && (
@@ -495,346 +632,16 @@ const DeepResearch = () => {
                     </button>
                 </div>
                 
-                {activeTab === 'overview' && (
-                <div className="tab-content">
-                  <div className="summary-section">
-                    <h3>Executive Summary</h3>
-                    <div className="markdown-content">
-                      <ReactMarkdown>{selectedResearch.summary}</ReactMarkdown>
-                    </div>
-                    
-                    <div className="insights-grid">
-                      <div className="insight-card">
-                        <h4>
-                          <Zap size={18} className="card-icon" /> 
-                            Key Findings
-                          </h4>
-                        <div className="findings-list">
-                            {selectedResearch.keyFindings.map((finding, index) => (
-                            <div key={index} className="finding-item">
-                              <span className="category-tag">
-                                  {finding.category}
-                                </span>
-                              <p>{finding.text}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        
-                      <div className="insight-card">
-                        <h4>
-                          <Database size={18} className="card-icon" /> 
-                            Information Sources
-                          </h4>
-                        <div className="sources-list">
-                            {selectedResearch.sources.map((source, index) => (
-                            <div key={index} className="source-item">
-                              <div className="source-header">
-                                <p className="source-name">{source.name}</p>
-                                <span className={`reliability-badge ${
-                                  source.reliability > 90 ? 'high' :
-                                  source.reliability > 80 ? 'medium' :
-                                  'low'
-                                }`}>
-                                  {source.reliability}% Reliability
-                                  </span>
-                              </div>
-                              <p className="source-meta">{source.type} • {source.date}</p>
-                              </div>
-                            ))}
-                        </div>
-                        </div>
-                      </div>
-                    </div>
-                    
-                  {/* Competitor analysis section */}
-                  {selectedResearch.competitorAnalysis && (
-                    <div className="competitor-analysis-section">
-                      <h3>Competitor Analysis</h3>
-                      <div className="competitor-content">
-                        <p>{selectedResearch.competitorAnalysis}</p>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Consumer insights section */}
-                  {selectedResearch.consumerInsights && (
-                    <div className="consumer-insights-section">
-                      <h3>Consumer Insights</h3>
-                      <div className="consumer-content">
-                        <p>{selectedResearch.consumerInsights}</p>
-                      </div>
-                    </div>
-                  )}
-                    
-                  <div className="opportunities-section">
-                    <h3>Market Opportunities</h3>
-                    <div className="opportunities-table">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Opportunity</th>
-                            <th>Market Size</th>
-                            <th>Competition</th>
-                            <th>Timeline</th>
-                            <th>Actions</th>
-                            </tr>
-                          </thead>
-                        <tbody>
-                            {selectedResearch.marketOpportunities.map((item, index) => (
-                            <tr key={index}>
-                              <td>
-                                <div className="opportunity-name">{item.opportunity}</div>
-                                </td>
-                              <td>
-                                <span className={`size-badge ${item.size.toLowerCase()}`}>
-                                    {item.size}
-                                  </span>
-                                </td>
-                              <td>
-                                <span className={`competition-badge ${item.competition.toLowerCase()}`}>
-                                    {item.competition}
-                                  </span>
-                                </td>
-                              <td>{item.timeline}</td>
-                              <td>
-                                <button className="explore-button">Explore</button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </div>
+                {activeTab === 'overview' && selectedResearch && (
+                  <OverviewTab selectedResearch={selectedResearch} />
                 )}
                 
-                {activeTab === 'internal' && (
-                <div className="tab-content">
-                  <div className="integration-notice">
-                    <Zap size={20} className="notice-icon" />
-                  <div>
-                      <h3>Integrated Analysis</h3>
-                      <p>This analysis combines external research with internal MINISO data from Insight, KOC&KOL, Content Distribution, and Private Domain modules to provide comprehensive strategic recommendations.</p>
-                    </div>
-                  </div>
-                  
-                  <div className="data-insights-grid">
-                    <div className="data-card">
-                      <h3>Top Performing Disney Characters</h3>
-                      <div className="performance-chart">
-                        {selectedResearch.internalDataInsights.topPerformingCharacters.map((character, index) => (
-                          <div key={index} className="performance-item">
-                            <div className="performance-header">
-                              <span>{character.name}</span>
-                              <span>{character.performance}%</span>
-                            </div>
-                            <div className="performance-bar-bg">
-                              <div className="performance-bar" style={{ width: `${character.performance}%` }}></div>
-                        </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    <div className="data-card">
-                      <h3>Channel Performance</h3>
-                      <div className="channel-list">
-                        {selectedResearch.internalDataInsights.channelPerformance.map((channel, index) => (
-                          <div key={index} className="channel-item">
-                            <div className="channel-header">
-                              <span>{channel.channel}</span>
-                            </div>
-                            <div className="channel-metrics">
-                              <div className="metric">
-                                <div className="metric-header">
-                                      <span>Engagement Rate</span>
-                                      <span>{channel.engagement}%</span>
-                                    </div>
-                                <div className="metric-bar-bg">
-                                  <div className="engagement-bar" style={{ width: `${channel.engagement}%` }}></div>
-                                    </div>
-                                  </div>
-                              <div className="metric">
-                                <div className="metric-header">
-                                      <span>Conversion Rate</span>
-                                      <span>{channel.conversion}%</span>
-                                    </div>
-                                <div className="metric-bar-bg">
-                                  <div className="conversion-bar" style={{ width: `${channel.conversion * 10}%` }}></div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      </div>
-                    </div>
-                    
-                  <div className="strategy-section">
-                    <h3>KOC Strategy Effectiveness</h3>
-                    <div className="strategy-table">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Strategy</th>
-                            <th>Effectiveness</th>
-                            <th>Implementation Level</th>
-                            <th>Gap</th>
-                            </tr>
-                          </thead>
-                        <tbody>
-                            {selectedResearch.internalDataInsights.kocStrategy.map((strategy, index) => {
-                              const gap = strategy.effectiveness - strategy.implementation;
-                              return (
-                              <tr key={index}>
-                                <td>
-                                  <div className="strategy-name">{strategy.strategy}</div>
-                                  </td>
-                                <td>
-                                  <div className="metric-display">
-                                    <div className="metric-bar-bg small">
-                                      <div className="effectiveness-bar" style={{ width: `${strategy.effectiveness}%` }}></div>
-                                    </div>
-                                    <span>{strategy.effectiveness}%</span>
-                                    </div>
-                                  </td>
-                                <td>
-                                  <div className="metric-display">
-                                    <div className="metric-bar-bg small">
-                                      <div className="implementation-bar" style={{ width: `${strategy.implementation}%` }}></div>
-                                    </div>
-                                    <span>{strategy.implementation}%</span>
-                                    </div>
-                                  </td>
-                                <td>
-                                  <span className={`gap-badge ${
-                                    gap > 20 ? 'high' :
-                                    gap > 10 ? 'medium' :
-                                    'low'
-                                    }`}>
-                                      {gap}%
-                                    </span>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                    
-                  <div className="cross-module-insights">
-                    <h4>
-                      <Clipboard size={18} className="insights-icon" /> 
-                        Cross-Module Insights
-                      </h4>
-                    <div className="insights-list">
-                      <div className="insight-item">
-                        <Tag size={14} className="tag-icon" />
-                        <p>
-                          <span className="module-name">Insight + KOC&KOL:</span> Disney character preferences from VOC analysis align with KOC content performance, suggesting natural synergy.
-                          </p>
-                        </div>
-                      <div className="insight-item">
-                        <Tag size={14} className="tag-icon" />
-                        <p>
-                          <span className="module-name">Content Distribution + Private Domain:</span> Disney product ads show higher conversion rates in markets where landing pages have been optimized with character-specific content.
-                          </p>
-                        </div>
-                      <div className="insight-item">
-                        <Tag size={14} className="tag-icon" />
-                        <p>
-                          <span className="module-name">KOC&KOL + Content Distribution:</span> Limited edition unboxing videos on TikTok generated 38% higher ad recall than standard product showcases.
-                        </p>
-                      </div>
-                      </div>
-                    </div>
-                  </div>
+                {activeTab === 'internal' && selectedResearch && (
+                  <MinisoDataIntegrationTab selectedResearch={selectedResearch} />
                 )}
                 
-                {activeTab === 'recommendations' && (
-                <div className="tab-content">
-                  <div className="recommendations-section">
-                    <h3>Strategic Recommendations</h3>
-                    <div className="recommendations-list">
-                        {selectedResearch.recommendations.map((recommendation, index) => (
-                        <div key={index} className="recommendation-card">
-                          <div className="recommendation-icon">
-                            <TrendingUp size={16} className={`icon-${recommendation.priority.toLowerCase()}`} />
-                              </div>
-                          <div className="recommendation-content">
-                            <p className="recommendation-text">{recommendation.text}</p>
-                            <div className="recommendation-tags">
-                              <span className={`tag priority-${recommendation.priority.toLowerCase()}`}>
-                                    Priority: {recommendation.priority}
-                                  </span>
-                              <span className={`tag impact-${recommendation.impact.toLowerCase()}`}>
-                                    Impact: {recommendation.impact}
-                                  </span>
-                              <span className={`tag effort-${recommendation.effort.toLowerCase()}`}>
-                                    Effort: {recommendation.effort}
-                                  </span>
-                                </div>
-                              </div>
-                          <div className="recommendation-actions">
-                            <button className="action-icon comment">
-                                  <MessageCircle size={16} />
-                                </button>
-                            <button className="action-icon approve">
-                                  <Check size={16} />
-                                </button>
-                            <button className="action-icon reject">
-                                  <X size={16} />
-                                </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    
-                  <div className="roadmap-section">
-                    <h3>Implementation Roadmap</h3>
-                    <div className="roadmap-timeline">
-                      <div className="timeline-item current">
-                        <div className="timeline-marker"></div>
-                        <div className="timeline-content">
-                          <h4>Q2 2025: Initial Implementation</h4>
-                          <p>
-                                Launch TikTok campaign for limited edition Disney collections and optimize landing pages for character-specific content.
-                              </p>
-                            </div>
-                          </div>
-                      <div className="timeline-item">
-                        <div className="timeline-marker"></div>
-                        <div className="timeline-content">
-                          <h4>Q3 2025: Expansion</h4>
-                          <p>
-                                Develop sustainable Disney product line and begin development of AR experiences for physical products.
-                              </p>
-                            </div>
-                          </div>
-                      <div className="timeline-item">
-                        <div className="timeline-marker"></div>
-                        <div className="timeline-content">
-                          <h4>Q4 2025: Regional Customization</h4>
-                          <p>
-                                Launch regional Disney character collections based on local preferences identified through KOC feedback.
-                              </p>
-                            </div>
-                          </div>
-                      <div className="timeline-item">
-                        <div className="timeline-marker"></div>
-                        <div className="timeline-content">
-                          <h4>Q1 2026: Innovation Phase</h4>
-                          <p>
-                                Test Disney digital collectibles with physical product bundles and evaluate performance-based licensing models.
-                              </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                {activeTab === 'recommendations' && selectedResearch && (
+                  <RecommendationsTab selectedResearch={selectedResearch} />
                 )}
             </div>
           </div>
@@ -845,3 +652,4 @@ const DeepResearch = () => {
 };
 
 export default DeepResearch;
+console.log('Testing handleSearchClick function...');

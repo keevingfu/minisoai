@@ -4,6 +4,18 @@ import Anthropic from '@anthropic-ai/sdk';
  * Claude 3.7 Sonnet model interface
  * Provides methods for interacting with Claude AI model
  */
+
+// 默认的思维链步骤，用于各种错误情况下的回退
+export const DEFAULT_THOUGHT_STEPS = [
+  `Define research scope - Analyze market size, key players, and consumer behavior`,
+  `Collect data - Integrate industry reports, consumer surveys, and competitor analysis`,
+  `Identify key trends - Discover emerging patterns and changes in consumer preferences`,
+  `Analyze competitive landscape - Evaluate strengths, weaknesses, and market strategies of key players`,
+  `Extract consumer insights - Understand target audience needs, pain points, and purchase decision factors`,
+  `Identify opportunities - Discover unmet needs and potential market gaps`,
+  `Develop recommendations - Propose specific action recommendations based on analysis results`
+];
+
 export class DeepModel {
   /**
    * Initialize DeepModel instance
@@ -131,16 +143,10 @@ export class DeepModel {
    * @returns {Promise<string[]>} Thought chain steps array
    */
   async generateThoughtChain(topic, onThinking = null) {
-    // Default steps, returned in various error situations
-    const defaultSteps = [
-      `Define research scope - Analyze market size, key players, and consumer behavior for "${topic}"`,
-      `Collect data - Integrate industry reports, consumer surveys, and competitor analysis`,
-      `Identify key trends - Discover emerging patterns and changes in consumer preferences`,
-      `Analyze competitive landscape - Evaluate strengths, weaknesses, and market strategies of key players`,
-      `Extract consumer insights - Understand target audience needs, pain points, and purchase decision factors`,
-      `Identify opportunities - Discover unmet needs and potential market gaps`,
-      `Develop recommendations - Propose specific action recommendations based on analysis results`
-    ];
+    // 使用全局定义的默认步骤，但为每个步骤添加主题上下文
+    const defaultSteps = DEFAULT_THOUGHT_STEPS.map(step => 
+      step.replace(/Analyze market size|Propose specific action recommendations/g, 
+        match => match + ` for "${topic}"`));
     
     // Use AI model to dynamically generate thought chain process
     const question = topic;
@@ -375,24 +381,12 @@ export class DeepModel {
       };
     } catch (error) {
       console.error('Streaming thought chain process failed:', error);
-      
-      // Return default steps
-      const defaultSteps = [
-        `Step 1: Define research scope - Analyze market size, key players, and consumer behavior for "${topic}"`,
-        `Step 2: Collect data - Integrate industry reports, consumer surveys, and competitor analysis`,
-        `Step 3: Identify key trends - Discover emerging patterns and changes in consumer preferences`,
-        `Step 4: Analyze competitive landscape - Evaluate strengths, weaknesses, and market strategies of key players`,
-        `Step 5: Extract consumer insights - Understand target audience needs, pain points, and purchase decision factors`,
-        `Step 6: Identify opportunities - Discover unmet needs and potential market gaps`,
-        `Step 7: Develop recommendations - Propose specific action recommendations based on analysis results`
-      ];
-      
       if (onThoughtChainComplete) {
-        onThoughtChainComplete(defaultSteps);
+        onThoughtChainComplete(DEFAULT_THOUGHT_STEPS);
       }
       
       return {
-        thoughtChain: defaultSteps,
+        thoughtChain: DEFAULT_THOUGHT_STEPS,
         analysisResult: `Analysis failed: ${error instanceof Error ? error.message : String(error)}`
       };
     }

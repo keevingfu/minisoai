@@ -1,7 +1,15 @@
 import { createDeepModel } from './deepmodel';
-import DeepResearch from './index.jsx';
+import React from 'react';
 
-export default DeepResearch;
+// 创建一个包装组件，避免循环导入
+// 在routes.js中使用
+const DeepResearchWrapper = () => {
+  // 动态导入DeepResearch组件
+  const DeepResearch = require('./index.jsx').default;
+  return <DeepResearch />;
+};
+
+export default DeepResearchWrapper;
 
 export const researchTopics = [
   'Gen Z shopping behaviors in US market',
